@@ -1,0 +1,156 @@
+name: Checkout
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master, dev, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkout-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checkout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check package files
+        run: |
+          for file in README.md CHANGELOG.md CONTRIBUTING.md LICENSE example/pubspec.yaml; do
+            test -f "$file"
+          done
+          grep -q '^## Description' README.md
+          grep -q '^## Example' README.md
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@v4
+        with:
+          version: '2026.9.15'
+          install_args: flutter just
+      - name: Check formatting, analysis, and tests
+        run: just precommit
+
+  desktop:
+    name: ${{ matrix.device }} example
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            device: macos
+          - runner: ubuntu-latest
+            device: linux
+          - runner: windows-latest
+            device: windows
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install pinned Flutter
+        uses: jdx/mise-action@v4
+        with:
+          version: '2026.9.15'
+          install_args: flutter
+      - name: Install Linux desktop dependencies
+        if: matrix.device == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libglu1-mesa iproute2 xvfb xauth
+      - name: Resolve example dependencies
+        working-directory: example
+        run: flutter pub get
+      - name: Test Linux route loss and recovery
+        if: matrix.device == 'linux'
+        working-directory: example
+        run: bash ../tool/test-linux-recovery.sh
+      - name: Test the native desktop channel
+        if: matrix.device != 'linux'
+        working-directory: example
+        env:
+          DEVICE: ${{ matrix.device }}
+        run: flutter test --no-pub -d "$DEVICE" integration_test/native_connectivity_test.dart
+
+  mobile:
+    name: ${{ matrix.platform }} example
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: android
+            build: apk --debug
+          - runner: macos-latest
+            platform: ios
+            build: ios --debug --simulator
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@v4
+        with:
+          version: '2026.9.15'
+          install_args: ${{ matrix.platform == 'android' && 'flutter java' || 'flutter' }}
+      - name: Build mobile example
+        working-directory: example
+        env:
+          BUILD: ${{ matrix.build }}
+        run: |
+          read -r -a args <<< "$BUILD"
+          flutter build "${args[@]}"
+
+  notify:
+    name: Notify CI result
+    needs: [checkout, desktop, mobile]
+    if: >-
+      always() && github.ref_type != 'tag' && github.actor != 'dependabot[bot]' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NOTIFY_DISCORD_WEBHOOKS: ${{ secrets.DISCORD_WEBHOOKS }}
+      NOTIFY_TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      NOTIFY_TELEGRAM_TARGETS: ${{ secrets.TELEGRAM_TARGETS }}
+    steps:
+      - name: Checkout trusted notification template
+        if: >-
+          env.NOTIFY_DISCORD_WEBHOOKS != '' && env.NOTIFY_TELEGRAM_BOT_TOKEN != '' && env.NOTIFY_TELEGRAM_TARGETS != ''
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+      - name: Notify Discord and Telegram
+        if: >-
+          env.NOTIFY_DISCORD_WEBHOOKS != '' && env.NOTIFY_TELEGRAM_BOT_TOKEN != '' && env.NOTIFY_TELEGRAM_TARGETS != '' &&
+          hashFiles('.github/notify/templates/ci.md') != ''
+        uses: ziqq/actions/notify@ccd1a799683cd461a45d9303ac6fcb2792f8f5d2
+        with:
+          providers: discord,telegram
+          template-path: .github/notify/templates/ci.md
+          variables: |
+            {
+              "pub_dev_url": "https://pub.dev/packages/native_connectivity",
+              "status_label": ${{ toJSON(contains(needs.*.result, 'failure') && 'failure' || contains(needs.*.result, 'cancelled') && 'cancelled' || contains(needs.*.result, 'skipped') && 'skipped' || 'success') }}
+            }
+          failure-policy: best-effort
+          timeout-ms: "10000"
+          max-attempts: "5"
+          discord-webhooks: ${{ env.NOTIFY_DISCORD_WEBHOOKS }}
+          telegram-bot-token: ${{ env.NOTIFY_TELEGRAM_BOT_TOKEN }}
+          telegram-targets: ${{ env.NOTIFY_TELEGRAM_TARGETS }}

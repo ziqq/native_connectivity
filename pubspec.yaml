@@ -1,0 +1,51 @@
+name: native_connectivity
+description: >-
+  Observe native network path changes on Android, iOS, macOS, Linux, and Windows.
+  Expose offline banner state and use real HTTP responses as recovery evidence.
+version: 0.0.1
+homepage: https://github.com/ziqq/native_connectivity
+repository: https://github.com/ziqq/native_connectivity
+issue_tracker: https://github.com/ziqq/native_connectivity/issues
+funding:
+  - https://www.buymeacoffee.com/ziqq
+  - https://boosty.to/ziqq
+topics:
+  - connectivity
+  - network
+  - network-monitor
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  windows:
+
+environment:
+  sdk: '>=3.13.5 <4.0.0'
+  flutter: '>=3.47.7'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.github.ziqq.connectivity
+        pluginClass: ConnectivityMonitorPlugin
+      ios:
+        pluginClass: ConnectivityMonitorPlugin
+        sharedDarwinSource: true
+      macos:
+        pluginClass: ConnectivityMonitorPlugin
+        sharedDarwinSource: true
+      linux:
+        pluginClass: ConnectivityMonitorPlugin
+      windows:
+        pluginClass: ConnectivityMonitorPluginCApi

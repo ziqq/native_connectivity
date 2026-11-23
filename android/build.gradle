@@ -1,0 +1,23 @@
+group = 'com.github.ziqq.connectivity'
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'com.github.ziqq.connectivity'
+    compileSdk = flutter.compileSdkVersion
+
+    defaultConfig {
+        minSdk = 24
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}

@@ -9,6 +9,9 @@
 #include <flutter/plugin_registrar_windows.h>
 #include <flutter/standard_method_codec.h>
 
+#include <atomic>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -18,6 +21,7 @@
 namespace {
 
 constexpr char kChannel[] = "github.com/ziqq/connectivity_monitor";
+constexpr UINT kRetryDelayMillis = 1000;
 using Value = flutter::EncodableValue;
 using Sink = flutter::EventSink<Value>;
 using Error = flutter::StreamHandlerError<Value>;
@@ -76,6 +80,11 @@ class ConnectivityMonitorPlugin final : public flutter::Plugin {
         channel_(registrar->messenger(), kChannel, &flutter::StandardMethodCodec::GetInstance()) {
     delegate_ = registrar_->RegisterTopLevelWindowProcDelegate(
         [this](HWND window, UINT message, WPARAM owner, LPARAM subscription) -> std::optional<LRESULT> {
+          if (retry_timer_ != 0 && window == window_ && message == WM_TIMER && owner == retry_timer_) {
+            StopRetry();
+            Register(false);
+            return 0;
+          }
           if (events_ && watch_ && window == watch_->window && message == notification_ &&
               owner == watch_->owner && subscription == watch_->subscription) {
             events_->Success(Value(ReadPath()));
@@ -105,25 +114,52 @@ class ConnectivityMonitorPlugin final : public flutter::Plugin {
     Cancel();
     events_ = std::move(events);
     auto* view = registrar_->GetView();
-    const auto window = view == nullptr ? nullptr : GetAncestor(view->GetNativeWindow(), GA_ROOT);
-    if (window == nullptr || notification_ == 0) {
+    window_ = view == nullptr ? nullptr : GetAncestor(view->GetNativeWindow(), GA_ROOT);
+    if (window_ == nullptr || notification_ == 0) {
       events_->Success(Value("unknown"));
+      return;
+    }
+    Register(true);
+  }
+
+  void Register(bool retry_on_failure) {
+    // A queued message can outlive the subscription that posted it.
+    watch_ = std::make_unique<Watch>(Watch{window_, notification_, reinterpret_cast<WPARAM>(this), ++subscription_});
+    auto error = NotifyRouteChange2(AF_UNSPEC, RouteChanged, watch_.get(), FALSE, &routes_);
+#if defined(NATIVE_CONNECTIVITY_TEST_FAIL_INTERFACE)
+    // The integration test exercises rollback after a real route registration.
+    if (error == NO_ERROR && retry_on_failure) error = ERROR_RETRY;
+#endif
+    if (error == NO_ERROR) {
+      error = NotifyIpInterfaceChange(AF_UNSPEC, InterfaceChanged, watch_.get(), FALSE, &interfaces_);
+    }
+    if (error == NO_ERROR) {
+      events_->Success(Value(ReadPath()));
       return;
     }
 
-    // A queued message can outlive the subscription that posted it.
-    watch_ = std::make_unique<Watch>(Watch{window, notification_, reinterpret_cast<WPARAM>(this), ++subscription_});
-    if (NotifyRouteChange2(AF_UNSPEC, RouteChanged, watch_.get(), FALSE, &routes_) != NO_ERROR ||
-        NotifyIpInterfaceChange(AF_UNSPEC, InterfaceChanged, watch_.get(), FALSE, &interfaces_) != NO_ERROR) {
-      events_->Success(Value("unknown"));
-      Cancel();
-      return;
+    StopWatching();
+    if (retry_on_failure) {
+      // KillTimer can leave queued messages. A fresh ID keeps them separate from later subscriptions.
+      static std::atomic<UINT_PTR> next_timer{UINT_PTR{1} << (std::numeric_limits<UINT_PTR>::digits - 1)};
+      const auto id = next_timer.fetch_add(1, std::memory_order_relaxed);
+      if (SetTimer(window_, id, kRetryDelayMillis, nullptr) != 0) retry_timer_ = id;
     }
-    events_->Success(Value(ReadPath()));
+    events_->Error("network_callback_failed", "Network callback registration failed", Value(static_cast<int64_t>(error)));
   }
 
   void Cancel() {
+    StopRetry();
+    StopWatching();
     events_.reset();
+    window_ = nullptr;
+  }
+
+  void StopRetry() {
+    if (retry_timer_ != 0) KillTimer(window_, std::exchange(retry_timer_, 0));
+  }
+
+  void StopWatching() {
     if (routes_ != nullptr) CancelMibChangeNotify2(std::exchange(routes_, nullptr));
     if (interfaces_ != nullptr) CancelMibChangeNotify2(std::exchange(interfaces_, nullptr));
     watch_.reset();
@@ -134,6 +170,8 @@ class ConnectivityMonitorPlugin final : public flutter::Plugin {
   flutter::EventChannel<Value> channel_;
   int delegate_ = 0;
   LPARAM subscription_ = 0;
+  HWND window_ = nullptr;
+  UINT_PTR retry_timer_ = 0;
   HANDLE routes_ = nullptr;
   HANDLE interfaces_ = nullptr;
   std::unique_ptr<Watch> watch_;

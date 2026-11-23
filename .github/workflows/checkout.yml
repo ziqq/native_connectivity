@@ -83,6 +83,12 @@ jobs:
         env:
           DEVICE: ${{ matrix.device }}
         run: flutter test --no-pub -d "$DEVICE" integration_test/native_connectivity_test.dart
+      - name: Test Windows registration retry
+        if: matrix.device == 'windows'
+        working-directory: example
+        env:
+          NATIVE_CONNECTIVITY_TEST_FAIL_INTERFACE: '1'
+        run: flutter test --no-pub -d windows integration_test/windows_registration_retry_test.dart
 
   mobile:
     name: ${{ matrix.platform }} example
@@ -114,6 +120,28 @@ jobs:
         run: |
           read -r -a args <<< "$BUILD"
           flutter build "${args[@]}"
+      - name: Enable KVM access
+        if: matrix.platform == 'android'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test native Android registration
+        if: matrix.platform == 'android'
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          script: |
+            cd example/android && ./gradlew :app:connectedDebugAndroidTest -Ptarget-platform=android-x64
+            bash tool/test-android-path.sh emulator-5554 cold-start
+            adb -s emulator-5554 shell settings put global mobile_data_always_on 1
+            adb -s emulator-5554 shell svc data enable
+            adb -s emulator-5554 shell svc wifi enable
+            adb -s emulator-5554 shell cmd wifi connect-network AndroidWifi open
+            bash tool/test-android-path.sh emulator-5554 handoff
 
   notify:
     name: Notify CI result

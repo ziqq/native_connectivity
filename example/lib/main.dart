@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:native_connectivity/native_connectivity.dart';
-import 'package:native_connectivity_example/connectivity_interceptor.dart';
+import 'package:native_connectivity_example/connectivity_http_client_adapter.dart';
 import 'package:native_connectivity_example/connectivity_middleware.dart';
 
 void main() {
@@ -32,13 +32,18 @@ class _ConnectivityExampleState extends State<ConnectivityExample> {
   static const _requestTimeout = Duration(seconds: 10);
 
   final _url = TextEditingController(text: 'https://example.com');
-  late final _dio = Dio(
-    BaseOptions(connectTimeout: _requestTimeout, receiveTimeout: _requestTimeout, validateStatus: (_) => true),
-  )..interceptors.add(ConnectivityInterceptor(widget.monitor));
+  late final _dio = _createDio();
   late final _http = ConnectivityMiddleware(http.Client(), widget.monitor);
 
   _Transport _transport = .dio;
   Future<String>? _result;
+
+  Dio _createDio() {
+    final dio = Dio(
+      BaseOptions(connectTimeout: _requestTimeout, receiveTimeout: _requestTimeout, validateStatus: (_) => true),
+    );
+    return dio..httpClientAdapter = ConnectivityHttpClientAdapter(dio.httpClientAdapter, widget.monitor);
+  }
 
   @override
   void dispose() {

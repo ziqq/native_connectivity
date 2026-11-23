@@ -6,7 +6,7 @@ Disconnect and reconnect the device's network to see the banner respond while th
 **HTTP**, enter a URL, and select **Send request** to see the response or transport error. The example sends a request
 only when you select the button.
 
-- [Dio interceptor](lib/connectivity_interceptor.dart) reports genuine responses from Dio response and error hooks.
+- [Dio adapter](lib/connectivity_http_client_adapter.dart) captures the path at send time and reports headers before decoding the response body.
   Place it on a transport that returns real responses when assembling a client with caching or synthetic responses.
 - [HTTP middleware](lib/connectivity_middleware.dart) wraps the actual `package:http` client and reports a response
   as soon as its headers arrive.

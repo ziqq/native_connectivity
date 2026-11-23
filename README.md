@@ -52,6 +52,7 @@ Pass `onError` to `start()` to forward errors emitted by the observation stream 
 logger or error handler. The [example](example/lib/main.dart) uses Flutter's `FlutterError.reportError`.
 Flutter also reports errors while opening or closing the platform channel through `FlutterError.reportError`.
 See the [EventChannel contract](https://api.flutter.dev/flutter/services/EventChannel/receiveBroadcastStream.html).
+Android and Windows report a callback registration error and retry once while the subscription is active.
 
 ## How the banner responds
 
@@ -79,7 +80,7 @@ For an actual network attempt, capture `networkGeneration` before sending. Pass 
 `reportHTTPResponse` when a real HTTP response arrives, including an error status such as `503`. Keep ordinary HTTP
 error handling for that response. A path replacement advances the generation, even when both paths are available.
 A response from the old path cannot hide a loss on the new path. Cache hits, synthetic responses, and transport
-failures without HTTP headers carry no evidence of current reachability. Use the [Dio interceptor](example/lib/connectivity_interceptor.dart)
+failures without HTTP headers carry no evidence of current reachability. Use the [Dio adapter](example/lib/connectivity_http_client_adapter.dart)
 or [HTTP middleware](example/lib/connectivity_middleware.dart) as starting points for your adapters.
 
 ## Example

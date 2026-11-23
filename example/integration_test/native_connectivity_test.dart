@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,11 +11,18 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   const verifyNetworkSwitch = bool.fromEnvironment('VERIFY_NETWORK_SWITCH');
 
+  testWidgets('accepts an Android subscription without requiring an initial path', (_) async {
+    const channel = MethodChannel('github.com/ziqq/connectivity_monitor');
+    await channel.invokeMethod<void>('listen');
+    await channel.invokeMethod<void>('cancel');
+  }, skip: !Platform.isAndroid || verifyNetworkSwitch);
+
   testWidgets('receives a native path observation', (_) async {
     const channel = EventChannel('github.com/ziqq/connectivity_monitor');
     final event = await channel.receiveBroadcastStream().timeout(const Duration(seconds: 10)).first;
-    expect(event, verifyNetworkSwitch ? 'satisfied' : isIn(['satisfied', 'unsatisfied']));
-  });
+    final statuses = ['satisfied', 'unsatisfied', if (Platform.isIOS || Platform.isMacOS) 'unknown'];
+    expect(event, verifyNetworkSwitch ? 'satisfied' : isIn(statuses));
+  }, skip: Platform.isAndroid && !verifyNetworkSwitch);
 
   testWidgets('clears the offline banner after a real route recovery', (tester) async {
     final monitor = ConnectivityMonitor.instance..start();

@@ -34,37 +34,50 @@ class ConnectivityMonitorPlugin : FlutterPlugin, EventChannel.StreamHandler {
 
 	override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
 		onCancel(null)
-		val next = Observation(events)
-		val applicationContext = context
+		val next = Observation(context, events)
 		observation = next
 		// Register and unregister in order while keeping Binder calls off the main thread.
-		executor.execute { next.register(applicationContext) }
+		executor.execute { next.register(retryOnFailure = true) }
 	}
 
 	override fun onCancel(arguments: Any?) {
 		val previous = observation ?: return
 		observation = null
-		executor.execute { previous.unregister() }
+		previous.cancel()
 	}
 
-	private inner class Observation(private val events: EventChannel.EventSink) : ConnectivityManager.NetworkCallback() {
+	private inner class Observation(
+		private val applicationContext: Context,
+		private val events: EventChannel.EventSink,
+	) : ConnectivityManager.NetworkCallback() {
 		private var manager: ConnectivityManager? = null // Registration executor.
 		private var currentNetwork: Network? = null // Main thread.
+		private val retry = Runnable { executor.execute { register(retryOnFailure = false) } }
 
-		fun register(context: Context) {
+		fun register(retryOnFailure: Boolean) {
 			try {
-				val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return
+				val connectivity = checkNotNull(applicationContext.getSystemService(ConnectivityManager::class.java)) {
+					"Connectivity service unavailable"
+				}
 				connectivity.registerDefaultNetworkCallback(this)
 				manager = connectivity
 			} catch (error: RuntimeException) {
 				Log.w("ConnectivityMonitor", "Network callback registration failed", error)
 				main.post {
-					if (observation === this) events.error("network_callback_failed", error.message, null)
+					if (observation !== this) return@post
+					// Give the service time to recover before retrying this subscription once.
+					if (retryOnFailure) main.postDelayed(retry, 1_000L)
+					events.error("network_callback_failed", error.message, null)
 				}
 			}
 		}
 
-		fun unregister() {
+		fun cancel() {
+			main.removeCallbacks(retry)
+			executor.execute { unregister() }
+		}
+
+		private fun unregister() {
 			try {
 				manager?.unregisterNetworkCallback(this)
 			} catch (error: RuntimeException) {

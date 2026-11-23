@@ -83,6 +83,24 @@ void main() => group('ConnectivityMonitor -', () {
     expect(monitor.controller.value, ConnectivityStatus.online);
   });
 
+  test('a response preserves a new loss emitted by a status listener', () async {
+    events.add(.unsatisfied);
+    await Future<void>.delayed(_confirmationWindow);
+    expect(monitor.controller.value, ConnectivityStatus.offline);
+
+    monitor.controller.addListener(() {
+      if (monitor.controller.value != .online) return;
+      events
+        ..add(.satisfied)
+        ..add(.unsatisfied);
+    });
+    monitor.reportHTTPResponse(monitor.networkGeneration);
+    expect(monitor.controller.value, ConnectivityStatus.online);
+
+    await Future<void>.delayed(_confirmationWindow);
+    expect(monitor.controller.value, ConnectivityStatus.offline);
+  });
+
   test('reports observation errors and clears the banner when the stream closes', () async {
     final error = PlatformException(code: 'observation_failed');
     final stackTrace = StackTrace.current;

@@ -48,8 +48,10 @@ releases the subscription, pending banner update, and listenable. A widget borro
 only its own listener. Tests and custom owners can supply an ordered `Stream<ConnectivityPathStatus>` using the
 `pathChanges` constructor argument.
 
-Pass `onError` to `start()` to forward observation errors and their stack traces to your own logger or error handler.
-The [example](example/lib/main.dart) uses Flutter's `FlutterError.reportError`.
+Pass `onError` to `start()` to forward errors emitted by the observation stream and their stack traces to your own
+logger or error handler. The [example](example/lib/main.dart) uses Flutter's `FlutterError.reportError`.
+Flutter also reports errors while opening or closing the platform channel through `FlutterError.reportError`.
+See the [EventChannel contract](https://api.flutter.dev/flutter/services/EventChannel/receiveBroadcastStream.html).
 
 ## How the banner responds
 

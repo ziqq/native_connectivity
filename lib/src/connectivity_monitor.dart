@@ -45,7 +45,8 @@ abstract interface class IConnectivityMonitor {
 
   /// Starts listening to platform events once.
   ///
-  /// [onError] receives observation errors after the path becomes unknown.
+  /// [onError] receives errors emitted by the observation stream after the path becomes unknown.
+  /// Flutter reports [EventChannel] activation and deactivation errors through `FlutterError.reportError`.
   void start({void Function(Object error, StackTrace stackTrace)? onError});
 
   /// Releases the event subscription and pending banner update.
@@ -129,8 +130,9 @@ final class ConnectivityMonitor implements IConnectivityMonitor {
   @override
   void reportHTTPResponse(int generation) {
     if (_disposed || generation != _networkGeneration) return;
-    _controller.value = .online;
+    // A listener can synchronously deliver another path change.
     _timer?.cancel();
+    _controller.value = .online;
   }
 
   @override
